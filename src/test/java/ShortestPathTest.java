@@ -11,10 +11,11 @@ import org.neo4j.test.TestGraphDatabaseFactory;
 
 import java.util.Collection;
 import java.util.HashSet;
+import java.util.List;
 import java.util.Map;
 
-import static org.junit.Assert.assertEquals;
-import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.*;
+import static org.neo4j.graphdb.Direction.*;
 
 public class ShortestPathTest {
 
@@ -44,7 +45,7 @@ public class ShortestPathTest {
     public void shortestPathWithPathExpanderBuilder() {
         PathExpanderBuilder builder = PathExpanderBuilder.empty();
         for (String reltype : REL_TYPES) {
-            builder = builder.add(RelationshipType.withName(reltype), Direction.BOTH);
+            builder = builder.add(RelationshipType.withName(reltype), INCOMING);
         }
         builder = builder.addNodeFilter(node -> {
             System.out.println("checking for node " + node.getProperty("name"));
@@ -57,10 +58,12 @@ public class ShortestPathTest {
 
     @Test
     public void shortestPathWithCustomPathExpander() {
-        runShortestPathWithExpander(new FilteringPathExpander(node -> {
+        FilteringPathExpander pathExpander = new FilteringPathExpander(node -> {
             nodesTouchedByFilter.add(node);
             return true;
-        }, "STATE", "PARENT", "FLAG"));
+        });
+        pathExpander = pathExpander.addTypeAndDirections("STATE", INCOMING , "PARENT", INCOMING, "FLAG", INCOMING);
+        runShortestPathWithExpander(pathExpander);
     }
 
     private void runShortestPathWithExpander(PathExpander pathExpander) {
@@ -70,7 +73,10 @@ public class ShortestPathTest {
             final Path path = pathFinder.findSinglePath(start, end);
             assertNotNull("no shortest path found", path);
             assertEquals("wrong length of shortest path", 4, path.length());
-            assertEquals("not all nodes were touch by filter", Iterables.count(db.getAllNodes()), nodesTouchedByFilter.size());
+
+            List<Node> nodes = Iterables.asList(path.nodes());
+            List<Node> intermediateNodes = nodes.subList(1, nodes.size() - 1);
+            assertTrue("not all nodes were touch by filter", nodesTouchedByFilter.containsAll(intermediateNodes));
             tx.success();
         }
     }
@@ -88,8 +94,18 @@ public class ShortestPathTest {
 
             System.out.println("current path: from : " + path.startNode().getProperty("name") + " to: " +
             path.endNode().getProperty("name") + ", length: " + path.length());
-            Iterable result = delegate.expand(path, state);
-            System.out.println("expanding " + Iterables.asList(result));
+            Iterable<Relationship> result = delegate.expand(path, state);
+            String msg = "expanding: ";
+            boolean first = true;
+            for (Relationship r : result) {
+                if (!first) {
+                    msg += ", ";
+                } else {
+                    first = false;
+                }
+                msg += r.getType().name();
+            }
+            System.out.println(msg);
             return result;
         }
 
